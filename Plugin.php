@@ -7,7 +7,7 @@
  *
  * @package VisitorLogger
  * @author Mike
- * @version 1.2.2
+ * @version 1.2.3
  * @link https://www.maisblog.cn
  */
 require_once dirname(__FILE__) . '/ipdata/src/IpLocation.php';
@@ -168,7 +168,7 @@ class VisitorLogger_Plugin implements Typecho_Plugin_Interface
             }
         } else {
             $ipaddr = self::ipquery($ip);
-            $location = $ipaddr;
+            $location['country'] = $ipaddr;
         }
         return $location;
     }

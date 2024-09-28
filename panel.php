@@ -1,6 +1,8 @@
 <?php
 if (!defined('__TYPECHO_ADMIN__')) exit;
+?>
 
+<?php
 include 'common.php';
 include 'header.php';
 include 'menu.php';
