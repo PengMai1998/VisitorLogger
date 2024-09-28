@@ -3,11 +3,11 @@
 // if (!defined('__TYPECHO_ROOT_DIR__')) exit;
 
 /**
- * 访客日志插件，记录来访者的信息，统计来访者情况，本插件基于XQLocation进行开发
+ * 访客日志插件，记录来访者的信息，统计来访者情况，本插件基于XQLocation进行开发，现已支持IPV6
  *
  * @package VisitorLogger
  * @author Mike
- * @version 1.2.3
+ * @version 1.2.4
  * @link https://www.maisblog.cn
  */
 require_once dirname(__FILE__) . '/ipdata/src/IpLocation.php';
@@ -33,7 +33,17 @@ class VisitorLogger_Plugin implements Typecho_Plugin_Interface
             `city` VARCHAR(100),
             `time` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8;";
-
+        // ********如果提示UNSIGNED 或 AUTO_INCREMENT 或 ENGINE的相关错误，将上述代码替换成以下代码********
+        //$sql = "CREATE TABLE IF NOT EXISTS `{$prefix}visitor_log` (
+        //    `id` INT(10) PRIMARY KEY,
+        //    `ip` VARCHAR(45) NOT NULL,
+        //    `route` VARCHAR(255) NOT NULL,
+        //    `country` VARCHAR(100),
+        //    `region` VARCHAR(100),
+        //    `city` VARCHAR(100),
+        //   `time` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        //);";
+    
         try {
             $db->query($sql);
         } catch (Exception $e) {
@@ -75,8 +85,15 @@ class VisitorLogger_Plugin implements Typecho_Plugin_Interface
         }
         $db = Typecho_Db::get();
         $prefix = $db->getPrefix();
+        $ip_string = self::getIpAddress();
+        if(strpos($ip_string, ',') !== false) {
+            $ip_string = str_replace(' ', '', $ip_string);
+            $parts = explode(',', $ip_string); 
+            $ip = $parts[0];
+        } else {
+            $ip = $ip_string;
+        }
 
-        $ip = self::getIpAddress();
         $location = self::getIpLocation($ip);
 
         $db->query($db->insert('table.visitor_log')->rows(array(
@@ -197,12 +214,24 @@ class VisitorLogger_Plugin implements Typecho_Plugin_Interface
     public static function cleanUpOldRecords($days) {
         $db = Typecho_Db::get();
         $prefix = $db->getPrefix();
-        $expiryTime = $days * 24 * 60 * 60;
         $currentTime = time();
-
-        $db->query($db->delete($prefix . 'visitor_log')->where('UNIX_TIMESTAMP(time) < ?', $currentTime - $expiryTime));
-
-        $db->query($db->delete($prefix . 'ip_address')->where('UNIX_TIMESTAMP(last_update) < ?', $currentTime - $expiryTime));
+        $expiryTime = $days * 24 * 60 * 60;
+        if ($days == 0) {
+            $sql = "DELETE FROM {$prefix}visitor_log";
+            try {
+                $db->query($sql);
+            } catch (Exception $e) {
+                error_log("Error deleting records from visitor_log: " . $e->getMessage());
+            }
+        } else {
+            $expiryTimestamp = $currentTime - $expiryTime;
+            $sql = "DELETE FROM {$prefix}visitor_log WHERE UNIX_TIMESTAMP(time) < {$expiryTimestamp}";
+            try {
+                $db->query($sql);
+            } catch (Exception $e) {
+                error_log("Error deleting records from visitor_log: " . $e->getMessage());
+            }
+        }
     }
 }
 
