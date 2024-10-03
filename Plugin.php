@@ -1,13 +1,15 @@
 <?php
 
-// if (!defined('__TYPECHO_ROOT_DIR__')) exit;
+if (!defined('__TYPECHO_ROOT_DIR__')) {
+    exit;
+}
 
 /**
- * 访客日志插件，记录来访者的信息，统计来访者情况，本插件基于XQLocation进行开发，现已支持IPV6
+ * 访客日志插件，记录来访者的信息，统计来访者情况，本插件基于XQLocation进行开发，现已排除蜘蛛IP，且已支持IPV6
  *
  * @package VisitorLogger
  * @author Mike
- * @version 1.2.4
+ * @version 1.2.5
  * @link https://www.maisblog.cn
  */
 require_once dirname(__FILE__) . '/ipdata/src/IpLocation.php';
@@ -52,19 +54,35 @@ class VisitorLogger_Plugin implements Typecho_Plugin_Interface
 
         Typecho_Plugin::factory('Widget_Archive')->header = array('VisitorLogger_Plugin', 'logVisitorInfo');
 
-        Helper::addPanel(3, 'VisitorLogger/panel.php', '访客日志', '查看访客日志', 'administrator');
+        Helper::addPanel(1, 'VisitorLogger/panel.php', '访客日志', '查看访客日志', 'administrator');
 
         return '插件已激活，访客日志功能已启用。';
     }
 
     public static function deactivate()
     {
-        Helper::removePanel(3, 'VisitorLogger/panel.php');
+        Helper::removePanel(1, 'VisitorLogger/panel.php');
         return '插件已禁用，访客日志功能已停用。';
     }
 
     public static function config(Typecho_Widget_Helper_Form $form)
     {
+        /* botlist设置 */
+        $bots = array(
+            'baidu=>百度',
+            'google=>谷歌',
+            'sogou=>搜狗',
+            'youdao=>有道',
+            'soso=>搜搜',
+            'bing=>必应',
+            'yahoo=>雅虎',
+            '360=>360搜索'
+        );
+
+        $botList = new Typecho_Widget_Helper_Form_Element_Textarea('botList', null, implode("\n", $bots), _t('蜘蛛记录设置'), _t('请按照格式填入蜘蛛信息，英文关键字不能超过16个字符'));
+
+        $form->addInput($botList);
+
         /* IPV4数据库选择 */
         $ipv4db = new Typecho_Widget_Helper_Form_Element_Radio(
             'ipv4db', 
@@ -77,8 +95,52 @@ class VisitorLogger_Plugin implements Typecho_Plugin_Interface
     {
     }
 
+
+     /**
+     * 获取蜘蛛列表
+     *
+     * @return array
+     */
+    public static function getBotsList()
+    {
+        $bots = array();
+        $_bots = explode("|", str_replace(array("\r\n", "\r", "\n"), "|", Helper::options()->plugin('VisitorLogger')->botList));
+        foreach ($_bots as $_bot) {
+            $_bot = explode("=>", $_bot);
+            $bots[strval($_bot[0])] = $_bot[1];
+        }
+        return $bots;
+    }
+
+
+     /**
+     * 蜘蛛记录函数
+     *
+     * @param mixed $rule
+     * @return boolean
+     */
+    public static function isBot()
+    {
+        $botList = self::getBotsList();
+        $bot = NULL;
+        if (count($botList) > 0) {
+            $request = Typecho_Request::getInstance();
+            $useragent = strtolower($request->getAgent());
+            foreach ($botList as $key => $value) {
+                if (strpos($useragent, strval($key)) !== false) {
+                    $bot = $key;
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     public static function logVisitorInfo()
     {
+        if (self::isBot()) {
+            return;
+        }
         $route = explode('?', $_SERVER['REQUEST_URI'])[0];
         if (strpos($route, "admin") !== false) {
             return;
