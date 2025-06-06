@@ -36,20 +36,34 @@ class VisitorLogger_Plugin implements Typecho_Plugin_Interface
             `time` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8;";
         // ********如果提示UNSIGNED 或 AUTO_INCREMENT 或 ENGINE的相关错误，将上述代码替换成以下代码********
-        //$sql = "CREATE TABLE IF NOT EXISTS `{$prefix}visitor_log` (
-        //    `id` INT(10) PRIMARY KEY,
-        //    `ip` VARCHAR(45) NOT NULL,
-        //    `route` VARCHAR(255) NOT NULL,
-        //    `country` VARCHAR(100),
-        //    `region` VARCHAR(100),
-        //    `city` VARCHAR(100),
+        // $sql = "CREATE TABLE IF NOT EXISTS `{$prefix}visitor_log` (
+        //     `id` INT(10) PRIMARY KEY,
+        //     `ip` VARCHAR(45) NOT NULL,
+        //     `route` VARCHAR(255) NOT NULL,
+        //     `country` VARCHAR(100),
+        //     `region` VARCHAR(100),
+        //     `city` VARCHAR(100),
         //   `time` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        //);";
+        // );";
+        
+        $sql_bot = "CREATE TABLE IF NOT EXISTS `{$prefix}visitor_bot_list` (
+            `id` INT(10) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            `ip` VARCHAR(45) NOT NULL,
+            `time` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8;";
     
+        // ********如果提示UNSIGNED 或 AUTO_INCREMENT 或 ENGINE的相关错误，将上述代码替换成以下代码********
+        // $sql_bot = "CREATE TABLE IF NOT EXISTS `{$prefix}visitor_bot_list` (
+        //     `id` INT(10) PRIMARY KEY,
+        //     `ip` VARCHAR(45) NOT NULL,
+        //     `time` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        // );";
+        
         try {
             $db->query($sql);
+            $db->query($sql_bot);
         } catch (Exception $e) {
-            throw new Typecho_Plugin_Exception('创建访客日志表或IP地址记录表失败: ' . $e->getMessage());
+            throw new Typecho_Plugin_Exception('创建访客日志表或Bot记录表失败: ' . $e->getMessage());
         }
 
         Typecho_Plugin::factory('Widget_Archive')->header = array('VisitorLogger_Plugin', 'logVisitorInfo');
@@ -132,6 +146,44 @@ class VisitorLogger_Plugin implements Typecho_Plugin_Interface
                     return true;
                 }
             }
+        }
+        
+        // -------- 先获取客户端 IP（可能为 "x.x.x.x, y.y.y.y" 形式） --------
+        $ipString = self::getIpAddress();
+        if (strpos($ipString, ',') !== false) {
+            // 如果有多个 IP，用第一个
+            $parts = explode(',', $ipString);
+            $ip    = trim($parts[0]);
+        } else {
+            $ip = $ipString;
+        }
+
+        // -------- 2. 检查自定义 Bot IP 表（支持通配符 "*") --------
+        try {
+            $db     = Typecho_Db::get();
+            $prefix = $db->getPrefix();
+            $select = $db->select()->from($prefix . 'visitor_bot_list', 'ip');
+            $results = $db->fetchAll($select);
+
+            foreach ($results as $row) {
+                $pattern = trim($row['ip']);
+                if ($pattern === '') {
+                    continue;
+                }
+                // 将通配符形式的 IP（如 "192.168.*.*" 或 "2001:db8::*"）转换为正则
+                // 1) 先对点和冒号进行转义
+                $regex = preg_quote($pattern, '/');
+                // 2) 再把 \* 替换为 .*
+                $regex = str_replace('\*', '.*', $regex);
+                // 3) 整体加上行首行尾
+                $regex = '/^' . $regex . '$/i';
+
+                if (preg_match($regex, $ip)) {
+                    return true;
+                }
+            }
+        } catch (Exception $e) {
+            // 如果数据库查询出错，不影响后续 UA 判断，直接跳过
         }
         return false;
     }

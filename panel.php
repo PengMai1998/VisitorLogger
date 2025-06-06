@@ -754,6 +754,16 @@ function setDateRange(rangeType) {
     vertical-align: middle;
 }
 
+.btn-primary {
+    background-color: skyblue;
+    border-color: skyblue;
+    color: #fff;
+}
+.btn-primary:hover {
+    background-color: deepskyblue;
+    border-color: deepskyblue;
+}
+
 </style>
 <div class="main">
     <div class="body container">
@@ -761,6 +771,7 @@ function setDateRange(rangeType) {
         <div class="tabs">
             <div class="tab active" data-tab="tab-logs">访客日志</div>
             <div class="tab" data-tab="tab-stats">访问统计</div>
+            <div class="tab" data-tab="tab-botip">自定义不记录IP列表</div>
         </div>
         <div class="content active" id="tab-logs">
             <form style="margin-bottom:10px"method="post" action="?panel=VisitorLogger%2Fpanel.php&page=<?php echo $page; ?>">
@@ -783,6 +794,7 @@ function setDateRange(rangeType) {
                         <th>访问路由</th>
                         <th>访问地点</th>
                         <th>时间</th>
+                        <th>操作</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -792,6 +804,12 @@ function setDateRange(rangeType) {
                         <td><?php echo htmlspecialchars(urldecode($log['route'])); ?></td>
                         <td><?php echo htmlspecialchars($log['country']); ?></td>
                         <td><?php echo htmlspecialchars($log['time']); ?></td>
+                        <td>
+                            <button class="btn btn-primary"
+                                    onclick="excludeIp('<?php echo $log['ip']; ?>')">
+                                不记录该IP
+                            </button>
+                        </td>
                     </tr>
                     <?php endforeach; ?>
                 </tbody>
@@ -838,8 +856,189 @@ function setDateRange(rangeType) {
                 </div>
             </div>
         </div>
+        <div class="content" id="tab-botip">
+            <span style="color:blue">一些蜘蛛会被记录为访客，您可以在此指定不记录的IP</span>
+            
+            <!-- 添加 IP 表单 -->
+            <form id="addBotIpForm" style="margin-bottom: 10px; display: flex; gap: 10px; align-items: center;">
+                <label for="newBotIp">新增不记录IP（支持 * 通配符）：</label>
+                <input type="text" id="newBotIp" name="newBotIp" placeholder="例如 123.123.*.* 或 2001:0db8::*" style="flex: 1" required>
+                <button type="submit" class="btn btn-primary">添加</button>
+            </form>
+            <div id="botIpMessage" style="margin-bottom: 10px; color: #d33;"></div>
+        
+            <!-- IP 列表表格 -->
+            <table class="typecho-list-table" id="botIpTable">
+                <thead>
+                    <tr>
+                        <th>IP 规则</th>
+                        <th>添加时间</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="botIpTableBody">
+                    <!-- 数据将通过 AJAX 动态加载 -->
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
+
+<script>
+// 切换到 “自定义不记录IP” 标签时，加载列表
+document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+        if (tab.dataset.tab === 'tab-botip') {
+            loadBotIpList();
+        }
+    });
+});
+
+// 页面初次加载时，如果 “自定义不记录IP” 标签默认可见就加载一次
+if (document.querySelector('.tab.active').dataset.tab === 'tab-botip') {
+    loadBotIpList();
+}
+
+/**
+ * 载入当前所有 IP 规则到表格中
+ */
+function loadBotIpList() {
+    // 清空提示和表格
+    document.getElementById('botIpMessage').textContent = '';
+    const tbody = document.getElementById('botIpTableBody');
+    tbody.innerHTML = '';
+
+    fetch('../usr/plugins/VisitorLogger/list_bot_ip.php?limit=1000&page=1')
+        .then(res => res.json())
+        .then(json => {
+            if (!json.success) {
+                document.getElementById('botIpMessage').textContent = '获取列表失败：' + json.message;
+                return;
+            }
+            const data = json.data;
+            if (data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" style="text-align:center">暂无 IP 规则</td></tr>';
+                return;
+            }
+            data.forEach(item => {
+                const tr = document.createElement('tr');
+
+                const tdIp = document.createElement('td');
+                tdIp.textContent = item.ip;
+                tr.appendChild(tdIp);
+
+                const tdTime = document.createElement('td');
+                tdTime.textContent = item.time;
+                tr.appendChild(tdTime);
+
+                const tdOp = document.createElement('td');
+                const delBtn = document.createElement('button');
+                delBtn.textContent = '删除';
+                delBtn.className = 'btn btn-danger';
+                delBtn.onclick = () => deleteBotIp(item.id);
+                tdOp.appendChild(delBtn);
+                tr.appendChild(tdOp);
+
+                tbody.appendChild(tr);
+            });
+        })
+        .catch(err => {
+            document.getElementById('botIpMessage').textContent = '获取列表出错，请稍后重试';
+            console.error(err);
+        });
+}
+
+/**
+ * 添加一条新的 IP 规则
+ */
+document.getElementById('addBotIpForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const ipInput = document.getElementById('newBotIp');
+    const ip = ipInput.value.trim();
+    const msgBox = document.getElementById('botIpMessage');
+
+    if (!ip) {
+        msgBox.textContent = '请输入合法的 IP 规则';
+        return;
+    }
+
+    fetch('../usr/plugins/VisitorLogger/add_bot_ip.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'ip=' + encodeURIComponent(ip)
+    })
+    .then(res => res.json())
+    .then(json => {
+        msgBox.textContent = json.message;
+        if (json.success) {
+            ipInput.value = '';
+            loadBotIpList();
+        }
+    })
+    .catch(err => {
+        msgBox.textContent = '添加失败，请稍后重试';
+        console.error(err);
+    });
+});
+
+/**
+ * 根据 id 删除对应的 IP 规则
+ * @param {number} id
+ */
+function deleteBotIp(id) {
+    if (!confirm('确认删除该 IP 规则？')) return;
+    const msgBox = document.getElementById('botIpMessage');
+
+    fetch('../usr/plugins/VisitorLogger/delete_bot_ip.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'id=' + encodeURIComponent(id)
+    })
+    .then(res => res.json())
+    .then(json => {
+        alert(json.message);
+        if (json.success) {
+            loadBotIpList();
+        }
+    })
+    .catch(err => {
+        msgBox.textContent = '删除失败，请稍后重试';
+        console.error(err);
+    });
+}
+
+/**
+ * 点击“不记录该IP”按钮时调用
+ * @param {string} ip 要排除的 IP
+ */
+function excludeIp(ip) {
+    if (!confirm('确定要不再记录并删除 IP[' + ip + '] 的所有日志吗？')) {
+        return;
+    }
+
+    fetch('../usr/plugins/VisitorLogger/ip_exclude.php', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: 'ip=' + encodeURIComponent(ip)
+    })
+    .then(res => res.json())
+    .then(json => {
+        if (json.success) {
+            alert('操作成功：' + json.message);
+            // 刷新页面或重新加载日志列表
+            location.reload();
+        } else {
+            alert('操作失败：' + json.message);
+        }
+    })
+    .catch(err => {
+        console.error(err);
+        alert('网络或服务器出错，请稍后再试');
+    });
+}
+</script>
 
 <?php
 include 'footer.php';
